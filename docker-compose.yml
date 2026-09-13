@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: turnos-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: turnos_medicos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - turnos_db_data:/var/lib/postgresql/data
+      - ./docker/1-schema.sql:/docker-entrypoint-initdb.d/1-schema.sql
+      - ./docker/2-seed-admin.sql:/docker-entrypoint-initdb.d/2-seed-admin.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: turnos-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/turnos_medicos
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      JWT_SECRET: cambiar_por_clave_secreta_de_al_menos_256_bits_en_produccion
+    ports:
+      - "8081:8081"
+
+volumes:
+  turnos_db_data:
