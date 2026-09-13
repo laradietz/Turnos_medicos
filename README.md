@@ -1,230 +1,148 @@
 # Sistema de Gestión de Turnos Médicos
 
-## Stack
-- Java 21 · Spring Boot 3.2.4 · Maven
-- PostgreSQL · Spring Data JPA · Hibernate
-- Spring Security · JWT (jjwt 0.12.5)
-- Lombok · MapStruct · Bean Validation
+API REST para la gestión integral de una clínica: turnos, agenda médica,
+pacientes, historia clínica, consultas, recetas, estudios y pagos, con
+autenticación JWT y permisos diferenciados por rol (ADMIN, MÉDICO,
+RECEPCIONISTA).
 
----
+## ¿Qué problema resuelve?
 
-## Estructura de paquetes
+Una clínica necesita coordinar la disponibilidad de varios médicos, evitar
+turnos superpuestos, mantener la historia clínica de cada paciente
+actualizada y llevar el registro de pagos — todo con reglas de acceso
+distintas según quién esté usando el sistema (no todos ven ni pueden hacer
+lo mismo). Este proyecto modela ese dominio completo como una API REST con
+autorización verificada del lado del servidor en cada endpoint.
+
+## Características
+
+- Autenticación con JWT (login, roles y permisos)
+- Gestión de pacientes, con historia clínica creada automáticamente al alta
+- Agenda médica: horarios semanales, bloqueos/vacaciones y cálculo de slots libres
+- Turnos: solicitar, confirmar, cancelar, completar o marcar inasistencia
+- Historia clínica: consultas, recetas y estudios médicos con resultados
+- Pagos y facturación asociados a cada turno
+- Notificaciones por usuario
+- Baja lógica (soft delete) en las entidades sensibles, con auditoría de fechas
+
+## Arquitectura
+
+```
+Cliente HTTP
+    ↓
+Controller       (valida entrada, no contiene lógica de negocio)
+    ↓
+Service          (reglas de negocio, transacciones)
+    ↓
+Repository       (Spring Data JPA)
+    ↓
+PostgreSQL
+```
+
+Capas separadas por responsabilidad, un archivo por clase:
 
 ```
 com.clinica/
-├── TurnosMedicosApplication.java
-├── config/
-│   └── SecurityConfig.java
-├── security/
-│   ├── JwtAuthenticationFilter.java
-│   └── UserDetailsServiceImpl.java
-├── util/
-│   └── JwtUtil.java
-├── exception/
-│   ├── GlobalExceptionHandler.java
-│   ├── ResourceNotFoundException.java
-│   └── BusinessException.java
-├── entity/
-│   ├── BaseEntity.java              ← UUID + auditoría
-│   ├── SoftDeleteEntity.java        ← + deleted_at
-│   ├── Specialty.java
-│   ├── HealthInsurance.java
-│   ├── Permission.java
-│   ├── Role.java
-│   ├── User.java
-│   ├── Patient.java
-│   ├── PatientInsurance.java
-│   ├── Doctor.java
-│   ├── Office.java
-│   ├── DoctorOffice.java
-│   ├── Schedule.java
-│   ├── Availability.java
-│   ├── Appointment.java
-│   ├── AppointmentStatusHistory.java
-│   ├── ClinicalRecord.java
-│   ├── Consultation.java
-│   ├── Prescription.java
-│   ├── PrescriptionItem.java
-│   ├── MedicalStudy.java
-│   ├── Payment.java
-│   ├── Invoice.java
-│   ├── Notification.java
-│   └── SystemConfiguration.java
-├── repository/
-│   ├── AllRepositories.java         ← todos los JpaRepository
-│   └── AppointmentStatusHistoryRepository.java
-├── service/
-│   ├── AuthService.java
-│   ├── PatientService.java
-│   ├── DoctorService.java
-│   ├── ScheduleService.java
-│   ├── AvailabilityService.java
-│   ├── AppointmentService.java
-│   ├── ClinicalServices.java        ← ClinicalRecord + Consultation + Prescription + Study
-│   └── PaymentNotificationService.java
-├── controller/
-│   ├── AuthController.java
-│   ├── PatientController.java
-│   ├── DoctorController.java        ← + SpecialtyController + HealthInsuranceController
-│   ├── AppointmentController.java   ← + ScheduleController + AvailabilityController
-│   ├── ClinicalController.java      ← + ConsultationController + PrescriptionController + StudyController
-│   └── PaymentNotificationController.java ← + NotificationController + ConfigController
-└── dto/
-    ├── AuthUserDtos.java
-    ├── MedicalDtos.java
-    └── AppointmentDtos.java
+├── config/        Seguridad (Spring Security)
+├── security/      Filtro JWT, UserDetailsService
+├── util/          Utilidades (generación/validación de JWT)
+├── exception/     GlobalExceptionHandler + excepciones de dominio
+├── entity/        Entidades JPA (BaseEntity con UUID + auditoría; SoftDeleteEntity)
+├── repository/    Un JpaRepository por entidad
+├── service/       Lógica de negocio, un service por dominio
+├── mapper/        Entidad ↔ DTO (MapStruct)
+├── dto/           Records de entrada/salida por dominio
+└── controller/    Un controller por recurso
 ```
 
----
+## Tecnologías
 
-## Ejecutar
+- Java 21 · Spring Boot 3.2 · Maven
+- Spring Data JPA · Hibernate · PostgreSQL
+- Spring Security + JWT (jjwt)
+- MapStruct (mapeo entidad ↔ DTO) · Lombok · Bean Validation
+- Docker / Docker Compose
 
-### 1. Crear la base de datos
+## Instalación y ejecución
+
+### Con Docker (recomendado)
+
+```bash
+git clone https://github.com/laradietz/Turnos_medicos.git
+cd Turnos_medicos
+docker compose up --build
+```
+
+Esto levanta Postgres (con el esquema y un usuario admin de ejemplo ya
+cargados) y la API. Queda disponible en `http://localhost:8081`.
+
+### Local, con tu propio PostgreSQL
+
+Requiere Java 21 y Maven.
+
 ```bash
 psql -U postgres -f src/main/resources/schema.sql
-```
-
-### 2. Configurar credenciales
-Editar `src/main/resources/application.properties`:
-```properties
-spring.datasource.username=postgres
-spring.datasource.password=tu_password
-app.jwt.secret=clave_de_al_menos_32_caracteres_aqui
-```
-
-### 3. Compilar y correr
-```bash
+psql -U postgres -d turnos_medicos -f src/main/resources/seed-admin.sql   # opcional, datos de ejemplo
 mvn spring-boot:run
 ```
 
----
+## Configuración
 
-## Endpoints principales
+Copiá `.env.example` a `.env` y ajustá los valores si tu PostgreSQL local
+no usa `postgres`/`postgres`. En desarrollo local (con Docker o con los
+defaults de `application.properties`) no hace falta tocar nada.
 
-### Autenticación
+## Uso
+
 ```
 POST /api/auth/login
-Body: { "username": "admin", "password": "1234" }
-→ Retorna token JWT
+Body: { "username": "admin", "password": "admin123" }
+→ Retorna un token JWT
 ```
 
-Todos los demás endpoints requieren header:
-```
-Authorization: Bearer <token>
-```
+Todos los demás endpoints requieren el header `Authorization: Bearer <token>`.
 
-### Turnos
-```
-GET    /api/turnos?doctorId=&date=2024-06-01    Ver agenda del día
-POST   /api/turnos                               Solicitar turno
-PATCH  /api/turnos/{id}/confirmar               Confirmar
-PATCH  /api/turnos/{id}/cancelar                Cancelar
-PATCH  /api/turnos/{id}/completar               Marcar como atendido
-PATCH  /api/turnos/{id}/ausente                 Marcar inasistencia
-GET    /api/turnos/paciente/{id}                Turnos de un paciente
-```
+Endpoints principales (ver el código de cada controller para el detalle
+completo de parámetros):
 
-### Disponibilidad
-```
-GET  /api/disponibilidad/{doctorId}/slots?date=  Slots libres del día
-GET  /api/disponibilidad/{doctorId}?from=&to=    Bloqueos en rango
-POST /api/disponibilidad/{doctorId}              Registrar bloqueo/vacación
-```
+| Recurso | Endpoints |
+|---|---|
+| Turnos | `GET/POST /api/turnos`, `PATCH /api/turnos/{id}/confirmar\|cancelar\|completar\|ausente` |
+| Disponibilidad | `GET /api/disponibilidad/{doctorId}/slots`, `POST /api/disponibilidad/{doctorId}` |
+| Pacientes | `GET/POST/PUT/DELETE /api/patients`, `POST /api/patients/{id}/insurances` |
+| Historia clínica | `GET/PATCH /api/historia-clinica/paciente/{id}`, consultas/recetas/estudios asociados |
+| Pagos | `POST /api/pagos`, `PATCH /api/pagos/{id}/confirmar\|reembolsar` |
+| Notificaciones | `GET /api/notificaciones`, `PATCH /api/notificaciones/{id}/leer` |
+| Agenda | `GET/POST /api/agenda/{doctorId}` |
 
-### Pacientes
-```
-GET    /api/patients?name=          Buscar pacientes
-GET    /api/patients/{id}           Ver paciente
-POST   /api/patients               Crear paciente (crea historia clínica automáticamente)
-PUT    /api/patients/{id}           Actualizar
-DELETE /api/patients/{id}           Soft delete
-POST   /api/patients/{id}/insurances  Agregar obra social
-```
+### Roles y permisos
 
-### Historia clínica
-```
-GET   /api/historia-clinica/paciente/{id}    Ver historia clínica
-PATCH /api/historia-clinica/paciente/{id}    Actualizar antecedentes
-GET   /api/consultas/paciente/{id}           Historial de consultas
-POST  /api/consultas                         Registrar consulta
-GET   /api/recetas/paciente/{id}             Recetas del paciente
-POST  /api/recetas                           Emitir receta
-GET   /api/estudios/paciente/{id}            Estudios del paciente
-POST  /api/estudios                          Solicitar estudio
-PATCH /api/estudios/{id}/resultado           Cargar resultado
-```
+| Acción | ADMIN | MÉDICO | RECEPCIONISTA |
+|---|:---:|:---:|:---:|
+| Crear paciente | ✓ | | ✓ |
+| Ver paciente | ✓ | ✓ | ✓ |
+| Registrar consulta | ✓ | ✓ | |
+| Emitir receta | | ✓ | |
+| Solicitar/confirmar/cancelar turno | ✓ | | ✓ |
+| Registrar pago | ✓ | | ✓ |
+| Gestionar usuarios | ✓ | | |
+| Configuración del sistema | ✓ | | |
 
-### Pagos
-```
-POST  /api/pagos                     Registrar pago
-PATCH /api/pagos/{id}/confirmar      Confirmar cobro
-PATCH /api/pagos/{id}/reembolsar     Reembolso
-GET   /api/pagos?status=PENDING      Pagos pendientes
-```
+## Qué aprendí
 
-### Notificaciones
-```
-GET   /api/notificaciones              Las del usuario autenticado
-GET   /api/notificaciones/no-leidas    Sin leer
-GET   /api/notificaciones/no-leidas/cantidad
-PATCH /api/notificaciones/{id}/leer    Marcar leída
-PATCH /api/notificaciones/leer-todas
-```
+- Modelar un dominio real con relaciones de varios niveles (paciente → historia
+  clínica → consulta → receta/estudio) sin que el grafo de entidades se vuelva
+  inmanejable.
+- Separar autorización por rol a nivel de servicio en vez de solo ocultar
+  botones en un hipotético frontend — cada operación sensible verifica el rol
+  del lado del servidor.
+- Usar baja lógica (soft delete) con auditoría en vez de `DELETE` físico para
+  datos clínicos, donde perder el historial no es una opción.
+- Adaptar un script SQL pensado para instalación manual (con su propio
+  `CREATE DATABASE` y locale) para que también funcione como script de
+  inicialización de un contenedor Docker.
 
-### Agenda médica
-```
-GET  /api/agenda/{doctorId}           Horarios del médico
-POST /api/agenda/{doctorId}           Crear horario semanal
-PATCH /api/agenda/{scheduleId}/desactivar
-```
+## Próximas mejoras
 
-### Configuración
-```
-GET /api/configuracion             Ver toda la configuración (ADMIN)
-PUT /api/configuracion/{key}       Actualizar valor
-```
-
----
-
-## Roles y permisos
-
-| Endpoint                  | ADMIN | MEDICO | RECEPCIONISTA |
-|---------------------------|-------|--------|---------------|
-| Crear paciente            | ✓     |        | ✓             |
-| Ver paciente              | ✓     | ✓      | ✓             |
-| Registrar consulta        | ✓     | ✓      |               |
-| Emitir receta             |       | ✓      |               |
-| Solicitar turno           | ✓     |        | ✓             |
-| Confirmar/cancelar turno  | ✓     |        | ✓             |
-| Registrar pago            | ✓     |        | ✓             |
-| Gestionar usuarios        | ✓     |        |               |
-| Configuración del sistema | ✓     |        |               |
-
----
-
-## Diagrama de relaciones
-
-```
-Specialty       ──<  Doctor
-HealthInsurance ──<  PatientInsurance  >── Patient
-Role            ──<  User
-Role            ──<  RolePermission    >── Permission
-User            ──1  Doctor
-Doctor          ──<  DoctorOffice      >── Office
-Doctor          ──<  Schedule
-Doctor          ──<  Availability
-Doctor          ──<  Appointment
-Patient         ──<  Appointment
-Patient         ──1  ClinicalRecord
-Appointment     ──1  Consultation
-Appointment     ──1  Payment           ──1  Invoice
-Appointment     ──<  AppointmentStatusHistory
-ClinicalRecord  ──<  Consultation
-Consultation    ──<  Prescription      ──<  PrescriptionItem
-Consultation    ──<  MedicalStudy
-ClinicalRecord  ──<  Prescription
-ClinicalRecord  ──<  MedicalStudy
-User            ──<  Notification
-Appointment     ──<  Notification
-Patient         ──<  MovimientoCuentaCorriente (cuenta_corriente)
-```
+- Tests de integración sobre los endpoints críticos (turnos, disponibilidad).
+- Reemplazar el script `schema.sql` manual por migraciones versionadas con Flyway.
